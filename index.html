@@ -234,10 +234,9 @@
 <div class="card">
   <div class="row">
     <button class="btn-primary" id="btnSave">💾 PDF speichern</button>
-    <button class="btn-secondary" id="btnMail">✉️ An Mail-Adresse</button>
-    <button class="btn-ghost" id="btnShare">📤 Teilen</button>
+    <button class="btn-secondary" id="btnShare">📤 Teilen / Mail</button>
   </div>
-  <div class="hint">„An Mail-Adresse" öffnet die Mail-App mit Empfänger oben aus Feld 3 vorausgefüllt – PDF muss in der Mail-App selbst als Anhang angefügt werden (System-Beschränkung).<br>„Teilen" öffnet das System-Menü (WhatsApp, AirDrop, Drive …) mit PDF direkt als Anhang.</div>
+  <div class="hint">„Teilen" öffnet das System-Menü mit der PDF als Anhang – Mail, WhatsApp, Drive, AirDrop usw.</div>
   <div class="status" id="status"></div>
 </div>
 
@@ -310,7 +309,6 @@ const emailInput = document.getElementById('email');
 const statusDiv = document.getElementById('status');
 const btnOcr = document.getElementById('btnOcr');
 const btnSave = document.getElementById('btnSave');
-const btnMail = document.getElementById('btnMail');
 const btnShare = document.getElementById('btnShare');
 
 let photos = [];
@@ -512,47 +510,6 @@ btnSave.addEventListener('click', async () => {
   }
 });
 
-// Direkter Mail-Versand: PDF speichern + Mail-App mit vorausgefüllter Empfängeradresse öffnen
-btnMail.addEventListener('click', async () => {
-  const email = emailInput.value.trim();
-  if (!email) {
-    setStatus('Bitte zuerst eine E-Mail-Adresse in Feld 3 eintragen.', 'err');
-    emailInput.focus();
-    return;
-  }
-  try {
-    btnMail.disabled = true;
-    const pdf = await buildPdf();
-    const name = pdfName();
-    const id = sanitize(machineIdInput.value);
-
-    // PDF speichern, damit der Nutzer es als Anhang verfügbar hat
-    pdf.save(name);
-
-    // Mail-App mit vorausgefülltem Empfänger, Betreff und Hinweistext öffnen
-    const subject = encodeURIComponent(`Maschinen-Doku ${id} (${todayStr()})`);
-    const body = encodeURIComponent(
-      `Anbei die Foto-Dokumentation der Maschine ${id} vom ${todayStr()}.\n\n` +
-      `Bitte die soeben gespeicherte PDF "${name}" als Anhang einfügen.`
-    );
-    // mailto: mit Empfängeradresse
-    const mailto = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
-
-    // Kurz warten, damit der Download abgeschlossen ist, dann Mail öffnen
-    setTimeout(() => {
-      window.location.href = mailto;
-    }, 300);
-
-    setStatus(`✅ PDF "${name}" gespeichert. Mail-App öffnet sich mit Empfänger ${email} – PDF bitte als Anhang anfügen.`, 'ok');
-    localStorage.setItem('foto2pdf_email', email);
-  } catch (e) {
-    setStatus('Fehler: ' + e.message, 'err');
-  } finally {
-    btnMail.disabled = false;
-  }
-});
-
-// System-Teilen-Menü (für WhatsApp, AirDrop, Drive etc. – PDF wird direkt als Anhang übergeben)
 btnShare.addEventListener('click', async () => {
   try {
     btnShare.disabled = true;
@@ -561,6 +518,7 @@ btnShare.addEventListener('click', async () => {
     const blob = pdf.output('blob');
     const file = new File([blob], name, { type: 'application/pdf' });
     const id = sanitize(machineIdInput.value);
+    const email = emailInput.value.trim();
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
@@ -570,6 +528,7 @@ btnShare.addEventListener('click', async () => {
           text: `Foto-Doku der Maschine ${id} vom ${todayStr()}`
         });
         setStatus(`✅ Geteilt: ${name}`, 'ok');
+        if (email) localStorage.setItem('foto2pdf_email', email);
         return;
       } catch (err) {
         if (err.name === 'AbortError') {
@@ -579,9 +538,17 @@ btnShare.addEventListener('click', async () => {
       }
     }
 
-    // Fallback: PDF nur speichern
+    if (!email) {
+      pdf.save(name);
+      setStatus(`PDF "${name}" gespeichert. (Teilen wird hier nicht unterstützt – E-Mail eintragen für Mail-Versand.)`, 'info');
+      return;
+    }
     pdf.save(name);
-    setStatus(`PDF "${name}" gespeichert. (Teilen wird von diesem Browser nicht unterstützt.)`, 'info');
+    const subject = encodeURIComponent(`Maschinen-Doku ${id} (${todayStr()})`);
+    const body = encodeURIComponent(`Foto-Doku Maschine ${id} vom ${todayStr()}.\nPDF "${name}" als Anhang anfügen.`);
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
+    setStatus(`✅ PDF gespeichert + Mail-App geöffnet.`, 'ok');
+    localStorage.setItem('foto2pdf_email', email);
   } catch (e) {
     setStatus('Fehler: ' + e.message, 'err');
   } finally {
