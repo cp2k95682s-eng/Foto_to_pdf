@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Foto→PDF">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+
+<title>Foto → PDF</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 16px;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    padding-top: calc(env(safe-area-inset-top, 0px) + 16px);
+    background: #f4f6fa;
+    color: #1f2937;
+    -webkit-text-size-adjust: 100%;
+  }
+  .header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .header-icon { width: 32px; height: 32px; border-radius: 6px; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  .sub { color: #6b7280; font-size: 0.88rem; margin-bottom: 16px; }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; }
+  input[type="text"], input[type="email"] {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 16px;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input[type="file"] { display: none; }
+  .add-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .add-btn {
+    flex: 1;
+    min-width: 130px;
+    padding: 14px;
+    background: #f3f4f6;
+    border: 2px dashed #9ca3af;
+    border-radius: 8px;
+    text-align: center;
+    cursor: pointer;
+    font-weight: 600;
+    color: #374151;
+    font-size: 0.95rem;
+    user-select: none;
+  }
+  .add-btn:active { background: #e5e7eb; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  button {
+    flex: 1;
+    min-width: 130px;
+    padding: 13px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.5; }
+  .btn-primary { background: #2563eb; color: white; }
+  .btn-secondary { background: #10b981; color: white; }
+  .btn-ghost { background: #e5e7eb; color: #1f2937; }
+  .btn-danger { background: #fee2e2; color: #991b1b; }
+
+  .photo-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .photo {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid #e5e7eb;
+    aspect-ratio: 1;
+    background: #f3f4f6;
+  }
+  .photo.first { border-color: #2563eb; }
+  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo .badge {
+    position: absolute;
+    top: 4px; left: 4px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .photo.first .badge { background: #2563eb; }
+  .photo .controls {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    display: flex;
+    background: rgba(0,0,0,0.6);
+  }
+  .photo .controls button {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 2px;
+    background: transparent;
+    color: white;
+    font-size: 0.95rem;
+    border: none;
+    border-radius: 0;
+    font-weight: normal;
+  }
+  .photo .controls button:active { background: rgba(255,255,255,0.2); }
+
+  .status {
+    padding: 10px 12px;
+    border-radius: 6px;
+    margin-top: 10px;
+    font-size: 0.88rem;
+    display: none;
+  }
+  .status.info { background: #dbeafe; color: #1e40af; display: block; }
+  .status.ok { background: #d1fae5; color: #065f46; display: block; }
+  .status.err { background: #fee2e2; color: #991b1b; display: block; }
+  .filename {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    background: #f3f4f6;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    margin-top: 8px;
+    word-break: break-all;
+  }
+  .count { font-size: 0.85rem; color: #6b7280; margin-top: 8px; }
+  .hint { font-size: 0.78rem; color: #6b7280; margin-top: 6px; line-height: 1.4; }
+
+  #offlineBanner {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    font-size: 0.85rem;
+    display: none;
+  }
+  #offlineBanner.show { display: block; }
+  #offlineBanner.ready {
+    background: #d1fae5;
+    color: #065f46;
+  }
+  #installBanner {
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    font-size: 0.88rem;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  #installBanner.show { display: flex; }
+  #installBanner button { flex: 0; min-width: auto; padding: 8px 14px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-icon">📷</div>
+  <h1>Foto → PDF</h1>
+</div>
+<p class="sub">Offline-fähig nach dem ersten Start. Alles bleibt auf dem Gerät.</p>
+
+<div id="offlineBanner"></div>
+<div id="installBanner">
+  <span>Als App installieren für Offline-Nutzung?</span>
+  <button class="btn-primary" id="btnInstall">Installieren</button>
+</div>
+
+<div class="card">
+  <label>1. Fotos hinzufügen (erstes ★ = Maschinenschild)</label>
+  <div class="add-row">
+    <label for="cameraInput" class="add-btn">📸 Kamera</label>
+    <label for="galleryInput" class="add-btn">🖼️ Galerie</label>
+  </div>
+  <input type="file" id="cameraInput" accept="image/*" capture="environment" />
+  <input type="file" id="galleryInput" accept="image/*" multiple />
+  <div class="count" id="count">Noch keine Fotos.</div>
+  <div class="photo-list" id="photoList"></div>
+  <div class="row" id="clearRow" style="display:none">
+    <button class="btn-danger" id="btnClear">🗑️ Alle entfernen</button>
+  </div>
+</div>
+
+<div class="card">
+  <label for="machineId">2. Maschinenkennzeichnung</label>
+  <input type="text" id="machineId" placeholder="z. B. M-12345" autocomplete="off" autocapitalize="characters" />
+  <div class="row">
+    <button class="btn-ghost" id="btnOcr">🔍 OCR aus erstem Foto</button>
+  </div>
+  <div class="filename" id="filename">Dateiname: —</div>
+</div>
+
+<div class="card">
+  <label for="email">3. E-Mail-Adresse (wird gemerkt)</label>
+  <input type="email" id="email" placeholder="empfaenger@firma.de" autocomplete="email" inputmode="email" />
+</div>
+
+<div class="card">
+  <div class="row">
+    <button class="btn-primary" id="btnSave">💾 PDF speichern</button>
+    <button class="btn-secondary" id="btnShare">📤 Teilen / Mail</button>
+  </div>
+  <div class="hint">„Teilen" öffnet das System-Menü mit der PDF als Anhang – Mail, WhatsApp, Drive, AirDrop usw.</div>
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+// ========== PWA / Service Worker ==========
+const offlineBanner = document.getElementById('offlineBanner');
+const installBanner = document.getElementById('installBanner');
+const btnInstall = document.getElementById('btnInstall');
+
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  installBanner.classList.add('show');
+});
+btnInstall.addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  installBanner.classList.remove('show');
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js');
+      // Status anzeigen
+      if (reg.active) {
+        showOfflineStatus('ready', '✅ Offline bereit – läuft komplett ohne Internet.');
+      } else {
+        showOfflineStatus('show', '⏳ Erstes Laden: lade App-Dateien für Offline-Nutzung …');
+      }
+      navigator.serviceWorker.ready.then(() => {
+        showOfflineStatus('ready', '✅ Offline bereit – läuft komplett ohne Internet.');
+        setTimeout(() => offlineBanner.classList.remove('show', 'ready'), 4000);
+      });
+    } catch (e) {
+      console.warn('SW-Fehler:', e);
+    }
+  });
+}
+
+function showOfflineStatus(cls, msg) {
+  offlineBanner.textContent = msg;
+  offlineBanner.className = '';
+  offlineBanner.classList.add('show');
+  if (cls === 'ready') offlineBanner.classList.add('ready');
+}
+
+window.addEventListener('online', () => {
+  if (offlineBanner.classList.contains('show')) {
+    offlineBanner.textContent = '✅ Online – App ist offline-fähig.';
+  }
+});
+window.addEventListener('offline', () => {
+  showOfflineStatus('ready', '📴 Offline-Modus aktiv – alles funktioniert lokal.');
+});
+
+// ========== App-Logik ==========
+const cameraInput = document.getElementById('cameraInput');
+const galleryInput = document.getElementById('galleryInput');
+const photoList = document.getElementById('photoList');
+const countDiv = document.getElementById('count');
+const clearRow = document.getElementById('clearRow');
+const btnClear = document.getElementById('btnClear');
+const machineIdInput = document.getElementById('machineId');
+const filenameDiv = document.getElementById('filename');
+const emailInput = document.getElementById('email');
+const statusDiv = document.getElementById('status');
+const btnOcr = document.getElementById('btnOcr');
+const btnSave = document.getElementById('btnSave');
+const btnShare = document.getElementById('btnShare');
+
+let photos = [];
+
+try {
+  const saved = localStorage.getItem('foto2pdf_email');
+  if (saved) emailInput.value = saved;
+} catch {}
+emailInput.addEventListener('change', () => {
+  try { localStorage.setItem('foto2pdf_email', emailInput.value); } catch {}
+});
+
+function setStatus(msg, type='info') {
+  statusDiv.textContent = msg;
+  statusDiv.className = 'status ' + type;
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function sanitize(s) {
+  return (s || '').trim()
+    .replace(/[^A-Za-z0-9\-_.]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60) || 'Maschine';
+}
+
+function pdfName() {
+  return `${sanitize(machineIdInput.value)}_${todayStr()}.pdf`;
+}
+
+function updateFilename() {
+  filenameDiv.textContent = `Dateiname: ${pdfName()}`;
+}
+machineIdInput.addEventListener('input', updateFilename);
+updateFilename();
+
+function addFiles(fileList) {
+  const arr = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+  for (const f of arr) {
+    photos.push({ file: f, url: URL.createObjectURL(f) });
+  }
+  renderPhotos();
+}
+
+cameraInput.addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+galleryInput.addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+
+function renderPhotos() {
+  photoList.innerHTML = '';
+  photos.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'photo' + (i === 0 ? ' first' : '');
+    div.innerHTML = `
+      <img src="${p.url}" alt="Foto ${i+1}" />
+      <div class="badge">${i === 0 ? '★ 1' : i+1}</div>
+      <div class="controls">
+        <button data-act="up" data-i="${i}">◀</button>
+        <button data-act="del" data-i="${i}">✕</button>
+        <button data-act="down" data-i="${i}">▶</button>
+      </div>
+    `;
+    photoList.appendChild(div);
+  });
+  countDiv.textContent = photos.length === 0
+    ? 'Noch keine Fotos.'
+    : `${photos.length} Foto${photos.length>1?'s':''} – Foto 1 (★) wird für OCR verwendet.`;
+  clearRow.style.display = photos.length > 0 ? 'flex' : 'none';
+}
+
+photoList.addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const i = parseInt(btn.dataset.i, 10);
+  const act = btn.dataset.act;
+  if (act === 'del') {
+    URL.revokeObjectURL(photos[i].url);
+    photos.splice(i, 1);
+  } else if (act === 'up' && i > 0) {
+    [photos[i-1], photos[i]] = [photos[i], photos[i-1]];
+  } else if (act === 'down' && i < photos.length - 1) {
+    [photos[i+1], photos[i]] = [photos[i], photos[i+1]];
+  }
+  renderPhotos();
+});
+
+btnClear.addEventListener('click', () => {
+  if (!confirm('Alle Fotos entfernen?')) return;
+  photos.forEach(p => URL.revokeObjectURL(p.url));
+  photos = [];
+  renderPhotos();
+  setStatus('Alle Fotos entfernt.', 'info');
+});
+
+btnOcr.addEventListener('click', async () => {
+  if (photos.length === 0) {
+    setStatus('Bitte zuerst ein Foto hinzufügen.', 'err');
+    return;
+  }
+  btnOcr.disabled = true;
+  setStatus('OCR wird vorbereitet …', 'info');
+  try {
+    const result = await Tesseract.recognize(photos[0].file, 'deu+eng', {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          setStatus(`OCR läuft: ${Math.round(m.progress*100)}%`, 'info');
+        } else if (m.status) {
+          setStatus(`${m.status} ${m.progress ? Math.round(m.progress*100)+'%' : ''}`, 'info');
+        }
+      }
+    });
+    const text = result.data.text || '';
+    const guess = guessMachineId(text);
+    machineIdInput.value = guess;
+    updateFilename();
+    setStatus(guess
+      ? `Erkannt: "${guess}". Bei Bedarf korrigieren.`
+      : 'Keine Kennzeichnung erkannt – bitte manuell eintragen.',
+      guess ? 'ok' : 'err');
+  } catch (e) {
+    setStatus('OCR-Fehler: ' + e.message, 'err');
+  } finally {
+    btnOcr.disabled = false;
+  }
+});
+
+function guessMachineId(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const keyword = /(typ|nr\.?|serien|seriennummer|maschine|model)[:\s]+([A-Z0-9\-\/\.]{3,})/i;
+  for (const line of lines) {
+    const m = line.match(keyword);
+    if (m) return m[2];
+  }
+  const tokenRe = /[A-Z0-9][A-Z0-9\-\/\.]{3,}/g;
+  for (const line of lines) {
+    const tokens = line.match(tokenRe) || [];
+    for (const t of tokens) {
+      if (/[A-Z]/.test(t) && /[0-9]/.test(t)) return t;
+    }
+  }
+  const all = (text.match(tokenRe) || []).sort((a,b)=>b.length-a.length);
+  return all[0] || '';
+}
+
+async function buildPdf() {
+  if (photos.length === 0) throw new Error('Keine Fotos ausgewählt.');
+  const pdf = new jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 10;
+
+  for (let i = 0; i < photos.length; i++) {
+    setStatus(`PDF wird erstellt: ${i+1}/${photos.length} …`, 'info');
+    const dataUrl = await fileToDataUrl(photos[i].file);
+    const dims = await imageDims(dataUrl);
+    const maxW = pageW - 2*margin;
+    const maxH = pageH - 2*margin;
+    const ratio = Math.min(maxW/dims.w, maxH/dims.h);
+    const w = dims.w * ratio;
+    const h = dims.h * ratio;
+    const x = (pageW - w)/2;
+    const y = (pageH - h)/2;
+    if (i > 0) pdf.addPage();
+    pdf.addImage(dataUrl, 'JPEG', x, y, w, h, undefined, 'FAST');
+  }
+  return pdf;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+function imageDims(dataUrl) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = rej;
+    img.src = dataUrl;
+  });
+}
+
+btnSave.addEventListener('click', async () => {
+  try {
+    btnSave.disabled = true;
+    const pdf = await buildPdf();
+    const name = pdfName();
+    pdf.save(name);
+    setStatus(`✅ PDF gespeichert: ${name}`, 'ok');
+  } catch (e) {
+    setStatus('Fehler: ' + e.message, 'err');
+  } finally {
+    btnSave.disabled = false;
+  }
+});
+
+btnShare.addEventListener('click', async () => {
+  try {
+    btnShare.disabled = true;
+    const pdf = await buildPdf();
+    const name = pdfName();
+    const blob = pdf.output('blob');
+    const file = new File([blob], name, { type: 'application/pdf' });
+    const id = sanitize(machineIdInput.value);
+    const email = emailInput.value.trim();
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: `Maschinen-Doku ${id}`,
+          text: `Foto-Doku der Maschine ${id} vom ${todayStr()}`
+        });
+        setStatus(`✅ Geteilt: ${name}`, 'ok');
+        if (email) localStorage.setItem('foto2pdf_email', email);
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          setStatus('Teilen abgebrochen.', 'info');
+          return;
+        }
+      }
+    }
+
+    if (!email) {
+      pdf.save(name);
+      setStatus(`PDF "${name}" gespeichert. (Teilen wird hier nicht unterstützt – E-Mail eintragen für Mail-Versand.)`, 'info');
+      return;
+    }
+    pdf.save(name);
+    const subject = encodeURIComponent(`Maschinen-Doku ${id} (${todayStr()})`);
+    const body = encodeURIComponent(`Foto-Doku Maschine ${id} vom ${todayStr()}.\nPDF "${name}" als Anhang anfügen.`);
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
+    setStatus(`✅ PDF gespeichert + Mail-App geöffnet.`, 'ok');
+    localStorage.setItem('foto2pdf_email', email);
+  } catch (e) {
+    setStatus('Fehler: ' + e.message, 'err');
+  } finally {
+    btnShare.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
