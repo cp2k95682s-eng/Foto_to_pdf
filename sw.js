@@ -2,7 +2,7 @@
 // Cached die App + alle externen Bibliotheken beim ersten Start
 // Nach dem ersten Aufruf läuft alles offline.
 
-const CACHE_NAME = 'foto2pdf-v1';
+const CACHE_NAME = 'foto2pdf-v2';
 
 // App-eigene Dateien (immer cachen)
 const APP_FILES = [
