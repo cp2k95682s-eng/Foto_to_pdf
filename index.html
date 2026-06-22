@@ -44,7 +44,7 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   }
   label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; }
-  input[type="text"], input[type="email"] {
+  input[type="text"] {
     width: 100%;
     padding: 12px;
     border: 1px solid #d1d5db;
@@ -86,7 +86,6 @@
   button:active { transform: scale(0.98); }
   button:disabled { opacity: 0.5; }
   .btn-primary { background: #2563eb; color: white; }
-  .btn-secondary { background: #10b981; color: white; }
   .btn-ghost { background: #e5e7eb; color: #1f2937; }
   .btn-danger { background: #fee2e2; color: #991b1b; }
 
@@ -168,24 +167,120 @@
     display: none;
   }
   #offlineBanner.show { display: block; }
-  #offlineBanner.ready {
-    background: #d1fae5;
-    color: #065f46;
-  }
-  #installBanner {
-    background: #dbeafe;
-    color: #1e40af;
-    padding: 12px;
-    border-radius: 8px;
-    margin-bottom: 14px;
-    font-size: 0.88rem;
+  #offlineBanner.ready { background: #d1fae5; color: #065f46; }
+
+  /* ========== Kamera-Vollbild-Overlay ========== */
+  #cameraOverlay {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 1000;
     display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    flex-direction: column;
   }
-  #installBanner.show { display: flex; }
-  #installBanner button { flex: 0; min-width: auto; padding: 8px 14px; }
+  #cameraOverlay.show { display: flex; }
+  #cameraVideo {
+    flex: 1;
+    width: 100%;
+    object-fit: cover;
+    background: #000;
+  }
+  #cameraTopBar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px 16px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 2;
+  }
+  #cameraTopBar .count-badge {
+    background: rgba(255,255,255,0.2);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #cameraTopBar button {
+    flex: 0;
+    min-width: auto;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #cameraBottomBar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 20px 16px calc(env(safe-area-inset-bottom, 0px) + 24px) 16px;
+    background: linear-gradient(to top, rgba(0,0,0,0.65), transparent);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 30px;
+    z-index: 2;
+  }
+  #shutter {
+    width: 78px; height: 78px;
+    border-radius: 50%;
+    background: white;
+    border: 5px solid rgba(255,255,255,0.4);
+    cursor: pointer;
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 0;
+    box-shadow: 0 0 0 4px rgba(0,0,0,0.2);
+    transition: transform 0.08s;
+  }
+  #shutter:active { transform: scale(0.92); background: #e5e7eb; }
+  #switchCamera {
+    width: 50px; height: 50px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.25);
+    color: white;
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 0;
+    font-size: 1.3rem;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #flashEffect {
+    position: absolute;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 3;
+  }
+  #flashEffect.flash {
+    animation: flash 0.18s ease-out;
+  }
+  @keyframes flash {
+    0% { opacity: 0; }
+    20% { opacity: 0.85; }
+    100% { opacity: 0; }
+  }
+  #cameraError {
+    position: absolute;
+    top: 50%; left: 16px; right: 16px;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 16px;
+    border-radius: 8px;
+    text-align: center;
+    z-index: 4;
+    display: none;
+  }
+  #cameraError.show { display: block; }
 </style>
 </head>
 <body>
@@ -197,18 +292,13 @@
 <p class="sub">Offline-fähig nach dem ersten Start. Alles bleibt auf dem Gerät.</p>
 
 <div id="offlineBanner"></div>
-<div id="installBanner">
-  <span>Als App installieren für Offline-Nutzung?</span>
-  <button class="btn-primary" id="btnInstall">Installieren</button>
-</div>
 
 <div class="card">
   <label>1. Fotos hinzufügen (erstes ★ = Maschinenschild)</label>
   <div class="add-row">
-    <label for="cameraInput" class="add-btn">📸 Kamera</label>
+    <label class="add-btn" id="btnOpenCamera">📸 Kamera</label>
     <label for="galleryInput" class="add-btn">🖼️ Galerie</label>
   </div>
-  <input type="file" id="cameraInput" accept="image/*" capture="environment" />
   <input type="file" id="galleryInput" accept="image/*" multiple />
   <div class="count" id="count">Noch keine Fotos.</div>
   <div class="photo-list" id="photoList"></div>
@@ -227,44 +317,38 @@
 </div>
 
 <div class="card">
-  <label for="email">3. E-Mail-Adresse (wird gemerkt)</label>
-  <input type="email" id="email" placeholder="empfaenger@firma.de" autocomplete="email" inputmode="email" />
-</div>
-
-<div class="card">
   <div class="row">
     <button class="btn-primary" id="btnSave">💾 PDF speichern</button>
-    <button class="btn-secondary" id="btnShare">📤 Teilen / Mail</button>
   </div>
-  <div class="hint">„Teilen" öffnet das System-Menü mit der PDF als Anhang – Mail, WhatsApp, Drive, AirDrop usw.</div>
+  <div class="hint">Beim Speichern öffnet sich der System-Dialog – dort kannst du den Zielordner wählen (z. B. „In Dateien sichern" auf iPhone, oder „Speichern unter" auf Android/Desktop).</div>
   <div class="status" id="status"></div>
+</div>
+
+<!-- ========== Kamera-Vollbild-Overlay ========== -->
+<div id="cameraOverlay">
+  <div id="cameraTopBar">
+    <button id="btnCloseCamera">✕ Fertig</button>
+    <div class="count-badge" id="cameraCount">0 Fotos</div>
+  </div>
+  <video id="cameraVideo" playsinline autoplay muted></video>
+  <canvas id="cameraCanvas" style="display:none"></canvas>
+  <div id="flashEffect"></div>
+  <div id="cameraError"></div>
+  <div id="cameraBottomBar">
+    <div style="width: 50px"></div>
+    <button id="shutter" aria-label="Foto aufnehmen"></button>
+    <button id="switchCamera" aria-label="Kamera wechseln">🔄</button>
+  </div>
 </div>
 
 <script>
 // ========== PWA / Service Worker ==========
 const offlineBanner = document.getElementById('offlineBanner');
-const installBanner = document.getElementById('installBanner');
-const btnInstall = document.getElementById('btnInstall');
-
-let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault();
-  deferredPrompt = e;
-  installBanner.classList.add('show');
-});
-btnInstall.addEventListener('click', async () => {
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt();
-  await deferredPrompt.userChoice;
-  deferredPrompt = null;
-  installBanner.classList.remove('show');
-});
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
       const reg = await navigator.serviceWorker.register('sw.js');
-      // Status anzeigen
       if (reg.active) {
         showOfflineStatus('ready', '✅ Offline bereit – läuft komplett ohne Internet.');
       } else {
@@ -287,17 +371,11 @@ function showOfflineStatus(cls, msg) {
   if (cls === 'ready') offlineBanner.classList.add('ready');
 }
 
-window.addEventListener('online', () => {
-  if (offlineBanner.classList.contains('show')) {
-    offlineBanner.textContent = '✅ Online – App ist offline-fähig.';
-  }
-});
 window.addEventListener('offline', () => {
-  showOfflineStatus('ready', '📴 Offline-Modus aktiv – alles funktioniert lokal.');
+  showOfflineStatus('ready', '📴 Offline-Modus – alles funktioniert lokal.');
 });
 
-// ========== App-Logik ==========
-const cameraInput = document.getElementById('cameraInput');
+// ========== App-Elemente ==========
 const galleryInput = document.getElementById('galleryInput');
 const photoList = document.getElementById('photoList');
 const countDiv = document.getElementById('count');
@@ -305,21 +383,25 @@ const clearRow = document.getElementById('clearRow');
 const btnClear = document.getElementById('btnClear');
 const machineIdInput = document.getElementById('machineId');
 const filenameDiv = document.getElementById('filename');
-const emailInput = document.getElementById('email');
 const statusDiv = document.getElementById('status');
 const btnOcr = document.getElementById('btnOcr');
 const btnSave = document.getElementById('btnSave');
-const btnShare = document.getElementById('btnShare');
+const btnOpenCamera = document.getElementById('btnOpenCamera');
+
+// Kamera-Overlay-Elemente
+const cameraOverlay = document.getElementById('cameraOverlay');
+const cameraVideo = document.getElementById('cameraVideo');
+const cameraCanvas = document.getElementById('cameraCanvas');
+const btnCloseCamera = document.getElementById('btnCloseCamera');
+const shutter = document.getElementById('shutter');
+const switchCameraBtn = document.getElementById('switchCamera');
+const flashEffect = document.getElementById('flashEffect');
+const cameraCount = document.getElementById('cameraCount');
+const cameraError = document.getElementById('cameraError');
 
 let photos = [];
-
-try {
-  const saved = localStorage.getItem('foto2pdf_email');
-  if (saved) emailInput.value = saved;
-} catch {}
-emailInput.addEventListener('change', () => {
-  try { localStorage.setItem('foto2pdf_email', emailInput.value); } catch {}
-});
+let cameraStream = null;
+let currentFacingMode = 'environment'; // Rückkamera
 
 function setStatus(msg, type='info') {
   statusDiv.textContent = msg;
@@ -348,6 +430,7 @@ function updateFilename() {
 machineIdInput.addEventListener('input', updateFilename);
 updateFilename();
 
+// ========== Foto-Liste Verwaltung ==========
 function addFiles(fileList) {
   const arr = Array.from(fileList).filter(f => f.type.startsWith('image/'));
   for (const f of arr) {
@@ -356,8 +439,10 @@ function addFiles(fileList) {
   renderPhotos();
 }
 
-cameraInput.addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
-galleryInput.addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+galleryInput.addEventListener('change', e => {
+  addFiles(e.target.files);
+  e.target.value = '';
+});
 
 function renderPhotos() {
   photoList.innerHTML = '';
@@ -379,6 +464,7 @@ function renderPhotos() {
     ? 'Noch keine Fotos.'
     : `${photos.length} Foto${photos.length>1?'s':''} – Foto 1 (★) wird für OCR verwendet.`;
   clearRow.style.display = photos.length > 0 ? 'flex' : 'none';
+  cameraCount.textContent = `${photos.length} Foto${photos.length!==1?'s':''}`;
 }
 
 photoList.addEventListener('click', e => {
@@ -405,6 +491,99 @@ btnClear.addEventListener('click', () => {
   setStatus('Alle Fotos entfernt.', 'info');
 });
 
+// ========== In-App-Kamera ==========
+async function startCamera() {
+  try {
+    cameraError.classList.remove('show');
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Kamera wird vom Browser nicht unterstützt.');
+    }
+
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: currentFacingMode,
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    };
+
+    cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+    cameraVideo.srcObject = cameraStream;
+    await cameraVideo.play();
+  } catch (e) {
+    let msg = 'Kamera-Zugriff fehlgeschlagen.';
+    if (e.name === 'NotAllowedError') {
+      msg = '❌ Kamera-Zugriff verweigert. Bitte in den Einstellungen erlauben.';
+    } else if (e.name === 'NotFoundError') {
+      msg = '❌ Keine Kamera gefunden.';
+    } else {
+      msg = '❌ ' + (e.message || e.name);
+    }
+    cameraError.textContent = msg;
+    cameraError.classList.add('show');
+  }
+}
+
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  cameraVideo.srcObject = null;
+}
+
+btnOpenCamera.addEventListener('click', async () => {
+  cameraOverlay.classList.add('show');
+  await startCamera();
+});
+
+btnCloseCamera.addEventListener('click', () => {
+  stopCamera();
+  cameraOverlay.classList.remove('show');
+});
+
+switchCameraBtn.addEventListener('click', async () => {
+  currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+  stopCamera();
+  await startCamera();
+});
+
+shutter.addEventListener('click', () => {
+  if (!cameraStream || !cameraVideo.videoWidth) return;
+
+  // Blitz-Animation
+  flashEffect.classList.remove('flash');
+  // reflow trigger
+  void flashEffect.offsetWidth;
+  flashEffect.classList.add('flash');
+
+  // Foto aus Video-Frame extrahieren
+  const w = cameraVideo.videoWidth;
+  const h = cameraVideo.videoHeight;
+  cameraCanvas.width = w;
+  cameraCanvas.height = h;
+  const ctx = cameraCanvas.getContext('2d');
+  ctx.drawImage(cameraVideo, 0, 0, w, h);
+
+  cameraCanvas.toBlob(blob => {
+    if (!blob) return;
+    const filename = `foto_${Date.now()}.jpg`;
+    const file = new File([blob], filename, { type: 'image/jpeg' });
+    photos.push({ file: file, url: URL.createObjectURL(file) });
+    renderPhotos();
+  }, 'image/jpeg', 0.92);
+});
+
+// Wenn das Overlay geschlossen wird (z. B. App-Wechsel), Kamera stoppen
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && cameraStream) {
+    // Pausiere Stream beim Verlassen
+  }
+});
+
+// ========== OCR ==========
 btnOcr.addEventListener('click', async () => {
   if (photos.length === 0) {
     setStatus('Bitte zuerst ein Foto hinzufügen.', 'err');
@@ -455,6 +634,7 @@ function guessMachineId(text) {
   return all[0] || '';
 }
 
+// ========== PDF-Erstellung ==========
 async function buildPdf() {
   if (photos.length === 0) throw new Error('Keine Fotos ausgewählt.');
   const pdf = new jspdf.jsPDF({ unit: 'mm', format: 'a4' });
@@ -496,63 +676,65 @@ function imageDims(dataUrl) {
   });
 }
 
+// ========== Speichern mit Pfad-Auswahl ==========
+// Strategie: 
+// 1) File System Access API (Desktop Chrome/Edge, Android Chrome) - echter Pfad-Picker
+// 2) Web Share API mit Datei (iOS Safari, Android) - System-Sheet mit "In Dateien sichern"
+// 3) Standard-Download (Fallback) - in Download-Ordner
+
 btnSave.addEventListener('click', async () => {
   try {
     btnSave.disabled = true;
     const pdf = await buildPdf();
     const name = pdfName();
-    pdf.save(name);
-    setStatus(`✅ PDF gespeichert: ${name}`, 'ok');
-  } catch (e) {
-    setStatus('Fehler: ' + e.message, 'err');
-  } finally {
-    btnSave.disabled = false;
-  }
-});
-
-btnShare.addEventListener('click', async () => {
-  try {
-    btnShare.disabled = true;
-    const pdf = await buildPdf();
-    const name = pdfName();
     const blob = pdf.output('blob');
-    const file = new File([blob], name, { type: 'application/pdf' });
-    const id = sanitize(machineIdInput.value);
-    const email = emailInput.value.trim();
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    // 1) File System Access API (gibt Dialog mit Ordnerauswahl)
+    if ('showSaveFilePicker' in window) {
       try {
-        await navigator.share({
-          files: [file],
-          title: `Maschinen-Doku ${id}`,
-          text: `Foto-Doku der Maschine ${id} vom ${todayStr()}`
+        const handle = await window.showSaveFilePicker({
+          suggestedName: name,
+          types: [{
+            description: 'PDF-Datei',
+            accept: { 'application/pdf': ['.pdf'] }
+          }]
         });
-        setStatus(`✅ Geteilt: ${name}`, 'ok');
-        if (email) localStorage.setItem('foto2pdf_email', email);
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setStatus(`✅ PDF gespeichert: ${handle.name}`, 'ok');
         return;
       } catch (err) {
         if (err.name === 'AbortError') {
-          setStatus('Teilen abgebrochen.', 'info');
+          setStatus('Speichern abgebrochen.', 'info');
+          return;
+        }
+        // Bei anderem Fehler weiter zum nächsten Versuch
+      }
+    }
+
+    // 2) Web Share API (iOS / Android) - öffnet System-Sheet mit "In Dateien" als Option
+    const file = new File([blob], name, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: name });
+        setStatus(`✅ Gespeichert: ${name}`, 'ok');
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          setStatus('Speichern abgebrochen.', 'info');
           return;
         }
       }
     }
 
-    if (!email) {
-      pdf.save(name);
-      setStatus(`PDF "${name}" gespeichert. (Teilen wird hier nicht unterstützt – E-Mail eintragen für Mail-Versand.)`, 'info');
-      return;
-    }
+    // 3) Fallback: normaler Download
     pdf.save(name);
-    const subject = encodeURIComponent(`Maschinen-Doku ${id} (${todayStr()})`);
-    const body = encodeURIComponent(`Foto-Doku Maschine ${id} vom ${todayStr()}.\nPDF "${name}" als Anhang anfügen.`);
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
-    setStatus(`✅ PDF gespeichert + Mail-App geöffnet.`, 'ok');
-    localStorage.setItem('foto2pdf_email', email);
+    setStatus(`✅ PDF "${name}" in den Download-Ordner gespeichert.`, 'ok');
   } catch (e) {
     setStatus('Fehler: ' + e.message, 'err');
   } finally {
-    btnShare.disabled = false;
+    btnSave.disabled = false;
   }
 });
 </script>
