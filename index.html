@@ -101,10 +101,10 @@
     overflow: hidden;
     border: 2px solid #e5e7eb;
     aspect-ratio: 1;
-    background: #f3f4f6;
+    background: #1f2937;
   }
   .photo.first { border-color: #2563eb; }
-  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
   .photo .badge {
     position: absolute;
     top: 4px; left: 4px;
@@ -156,6 +156,27 @@
   }
   .count { font-size: 0.85rem; color: #6b7280; margin-top: 8px; }
   .hint { font-size: 0.78rem; color: #6b7280; margin-top: 6px; line-height: 1.4; }
+
+  .folder-info {
+    background: #f3f4f6;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .folder-label {
+    font-size: 0.75rem;
+    color: #6b7280;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .folder-path {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.88rem;
+    color: #1f2937;
+    word-break: break-all;
+  }
 
   #offlineBanner {
     background: #fef3c7;
@@ -317,10 +338,17 @@
 </div>
 
 <div class="card">
-  <div class="row">
+  <div class="row" style="margin-top:0">
     <button class="btn-primary" id="btnSave">💾 PDF speichern</button>
   </div>
-  <div class="hint">Beim Speichern öffnet sich der System-Dialog – dort kannst du den Zielordner wählen (z. B. „In Dateien sichern" auf iPhone, oder „Speichern unter" auf Android/Desktop).</div>
+  <div id="folderRow" style="display:none; margin-top:10px;">
+    <div class="folder-info">
+      <div class="folder-label">Speicherordner:</div>
+      <div class="folder-path" id="folderPath">—</div>
+    </div>
+    <button class="btn-ghost" id="btnChangeFolder">📁 Ordner ändern</button>
+  </div>
+  <div class="hint" id="saveHint">Beim ersten Speichern wählst du den Zielordner – dieser wird für die nächsten Male gemerkt.</div>
   <div class="status" id="status"></div>
 </div>
 
@@ -635,6 +663,17 @@ function guessMachineId(text) {
 }
 
 // ========== PDF-Erstellung ==========
+// Ermittelt das Bildformat aus dem DataURL-Header (bewahrt das Original)
+function getImageFormat(dataUrl) {
+  const m = dataUrl.match(/^data:image\/(\w+);/i);
+  if (!m) return 'JPEG';
+  const fmt = m[1].toUpperCase();
+  if (fmt === 'JPG' || fmt === 'JPEG') return 'JPEG';
+  if (fmt === 'PNG') return 'PNG';
+  if (fmt === 'WEBP') return 'WEBP';
+  return 'JPEG';
+}
+
 async function buildPdf() {
   if (photos.length === 0) throw new Error('Keine Fotos ausgewählt.');
   const pdf = new jspdf.jsPDF({ unit: 'mm', format: 'a4' });
@@ -646,15 +685,21 @@ async function buildPdf() {
     setStatus(`PDF wird erstellt: ${i+1}/${photos.length} …`, 'info');
     const dataUrl = await fileToDataUrl(photos[i].file);
     const dims = await imageDims(dataUrl);
+    const format = getImageFormat(dataUrl);
+
+    // Verfügbarer Platz auf der Seite
     const maxW = pageW - 2*margin;
     const maxH = pageH - 2*margin;
+    // Proportionale Skalierung – Seitenverhältnis bleibt zu 100% erhalten
     const ratio = Math.min(maxW/dims.w, maxH/dims.h);
     const w = dims.w * ratio;
     const h = dims.h * ratio;
     const x = (pageW - w)/2;
     const y = (pageH - h)/2;
+
     if (i > 0) pdf.addPage();
-    pdf.addImage(dataUrl, 'JPEG', x, y, w, h, undefined, 'FAST');
+    // Original-Format einbetten -> kein Re-Encoding, keine Qualitätsänderung
+    pdf.addImage(dataUrl, format, x, y, w, h, undefined, 'NONE');
   }
   return pdf;
 }
@@ -676,12 +721,123 @@ function imageDims(dataUrl) {
   });
 }
 
-// ========== Speichern mit Pfad-Auswahl ==========
-// Strategie: 
-// 1) File System Access API (Desktop Chrome/Edge, Android Chrome) - echter Pfad-Picker
-// 2) Web Share API mit Datei (iOS Safari, Android) - System-Sheet mit "In Dateien sichern"
-// 3) Standard-Download (Fallback) - in Download-Ordner
+// ========== Speichern mit Pfad-Erinnerung ==========
+// Auf Android/Desktop (showDirectoryPicker verfügbar):
+//   - Beim ersten Speichern Ordner wählen, in IndexedDB persistieren
+//   - Bei nächsten Speicherungen direkt in den gemerkten Ordner schreiben
+//   - "Ordner ändern" um den Pfad zu wechseln
+// Auf iOS Safari (showDirectoryPicker NICHT verfügbar):
+//   - Web Share Sheet bei jedem Speichern (Apple-Beschränkung)
 
+const folderRow = document.getElementById('folderRow');
+const folderPath = document.getElementById('folderPath');
+const btnChangeFolder = document.getElementById('btnChangeFolder');
+const saveHint = document.getElementById('saveHint');
+
+const SUPPORTS_DIR_PICKER = 'showDirectoryPicker' in window;
+let savedDirHandle = null;
+
+// ----- IndexedDB für persistente DirectoryHandle -----
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('foto2pdf-db', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbGet(key) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbSet(key, value) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbDelete(key) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// ----- Berechtigungs-Check -----
+async function ensurePermission(handle) {
+  const opts = { mode: 'readwrite' };
+  if ((await handle.queryPermission(opts)) === 'granted') return true;
+  if ((await handle.requestPermission(opts)) === 'granted') return true;
+  return false;
+}
+
+// ----- UI: Ordner-Anzeige aktualisieren -----
+function updateFolderUI() {
+  if (!SUPPORTS_DIR_PICKER) {
+    // iOS oder anderer Browser ohne API
+    folderRow.style.display = 'none';
+    saveHint.textContent = 'Auf diesem Gerät öffnet sich beim Speichern der System-Dialog (z. B. „In Dateien sichern" auf iPhone). Eine dauerhafte Ordner-Erinnerung ist hier von Apple nicht erlaubt.';
+    return;
+  }
+  if (savedDirHandle) {
+    folderRow.style.display = 'block';
+    folderPath.textContent = '📁 ' + savedDirHandle.name;
+    saveHint.textContent = 'PDFs werden direkt in den oben gezeigten Ordner gespeichert. Mit „Ordner ändern" wählst du einen anderen.';
+  } else {
+    folderRow.style.display = 'block';
+    folderPath.textContent = '— (noch nicht gewählt)';
+    saveHint.textContent = 'Beim ersten Speichern wählst du den Zielordner – dieser wird für die nächsten Male gemerkt.';
+  }
+}
+
+// ----- Beim App-Start: gespeicherten Ordner laden -----
+(async () => {
+  if (!SUPPORTS_DIR_PICKER) {
+    updateFolderUI();
+    return;
+  }
+  try {
+    const handle = await dbGet('saveDir');
+    if (handle) {
+      savedDirHandle = handle;
+    }
+  } catch (e) {
+    console.warn('Konnte Ordner-Handle nicht laden:', e);
+  }
+  updateFolderUI();
+})();
+
+// ----- Ordner ändern -----
+btnChangeFolder.addEventListener('click', async () => {
+  if (!SUPPORTS_DIR_PICKER) return;
+  try {
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    savedDirHandle = handle;
+    await dbSet('saveDir', handle);
+    updateFolderUI();
+    setStatus(`✅ Speicherordner gesetzt: ${handle.name}`, 'ok');
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      setStatus('Ordner-Auswahl fehlgeschlagen: ' + e.message, 'err');
+    }
+  }
+});
+
+// ----- PDF speichern -----
 btnSave.addEventListener('click', async () => {
   try {
     btnSave.disabled = true;
@@ -689,31 +845,57 @@ btnSave.addEventListener('click', async () => {
     const name = pdfName();
     const blob = pdf.output('blob');
 
-    // 1) File System Access API (gibt Dialog mit Ordnerauswahl)
-    if ('showSaveFilePicker' in window) {
+    // === Weg 1: Gespeicherter Ordner (direkter Schreibzugriff) ===
+    if (SUPPORTS_DIR_PICKER && savedDirHandle) {
       try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: name,
-          types: [{
-            description: 'PDF-Datei',
-            accept: { 'application/pdf': ['.pdf'] }
-          }]
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        setStatus(`✅ PDF gespeichert: ${handle.name}`, 'ok');
-        return;
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          setStatus('Speichern abgebrochen.', 'info');
+        const hasPerm = await ensurePermission(savedDirHandle);
+        if (!hasPerm) {
+          setStatus('Schreibrechte für den Ordner wurden verweigert – bitte „Ordner ändern" wählen.', 'err');
           return;
         }
-        // Bei anderem Fehler weiter zum nächsten Versuch
+        const fileHandle = await savedDirHandle.getFileHandle(name, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setStatus(`✅ Gespeichert in „${savedDirHandle.name}": ${name}`, 'ok');
+        return;
+      } catch (e) {
+        // Ordner nicht mehr erreichbar (z. B. USB-Stick entfernt)
+        if (e.name === 'NotFoundError' || e.name === 'NotAllowedError') {
+          setStatus('Gespeicherter Ordner nicht mehr erreichbar – bitte neu wählen.', 'err');
+          savedDirHandle = null;
+          await dbDelete('saveDir').catch(()=>{});
+          updateFolderUI();
+          return;
+        }
+        throw e;
       }
     }
 
-    // 2) Web Share API (iOS / Android) - öffnet System-Sheet mit "In Dateien" als Option
+    // === Weg 2: Erstmal Ordner wählen, dann speichern ===
+    if (SUPPORTS_DIR_PICKER && !savedDirHandle) {
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        savedDirHandle = handle;
+        await dbSet('saveDir', handle);
+        updateFolderUI();
+
+        const fileHandle = await handle.getFileHandle(name, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setStatus(`✅ Gespeichert in „${handle.name}": ${name}. Pfad ist für die nächsten Male gemerkt.`, 'ok');
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          setStatus('Speichern abgebrochen.', 'info');
+          return;
+        }
+        throw e;
+      }
+    }
+
+    // === Weg 3: Web Share Sheet (iOS) ===
     const file = new File([blob], name, { type: 'application/pdf' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
@@ -728,7 +910,7 @@ btnSave.addEventListener('click', async () => {
       }
     }
 
-    // 3) Fallback: normaler Download
+    // === Weg 4: Fallback - normaler Download ===
     pdf.save(name);
     setStatus(`✅ PDF "${name}" in den Download-Ordner gespeichert.`, 'ok');
   } catch (e) {
